@@ -10,14 +10,30 @@ const app = express();
 // Security headers
 app.use(helmet());
 
-// CORS
+// CORS — allow any vercel.app subdomain + configured FRONTEND_URL
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://kiit-fitness.vercel.app',
+];
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || 'http://localhost:5173',
-    'https://kiit-gym.vercel.app',
-  ],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const allowed =
+      allowedOrigins.includes(origin) ||
+      /\.vercel\.app$/.test(origin) ||
+      /\.onrender\.com$/.test(origin);
+    if (allowed) return callback(null, true);
+    callback(new Error('CORS blocked: ' + origin));
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+// Handle preflight for all routes
+app.options('*', cors());
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
