@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: kiit-gym-backend
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: FRONTEND_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: QR_JWT_SECRET
+        generateValue: true
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY_ID
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_CLIENT_ID
+        sync: false
+      - key: FIREBASE_AUTH_URI
+        value: https://accounts.google.com/o/oauth2/auth
+      - key: FIREBASE_TOKEN_URI
+        value: https://oauth2.googleapis.com/token
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        value: "KIIT Fitness Center <noreply@kiitgym.in>"
+      - key: OTP_EXPIRY_MINUTES
+        value: 10
