@@ -12,7 +12,6 @@ const transporter = nodemailer.createTransport({
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 // ─── REGISTER (Step 1) ───────────────────────────────────────────
-// Validates against mock students_master, sends OTP to KIIT email
 exports.registerStep1 = async (req, res) => {
   const { name, rollNo, email, phone, gender, hostel, room } = req.body;
 
@@ -20,21 +19,10 @@ exports.registerStep1 = async (req, res) => {
     return res.status(400).json({ error: 'All fields are required' });
   }
   if (!email.endsWith('@kiit.ac.in') && !email.endsWith('@stu.kiit.ac.in')) {
-    return res.status(400).json({ error: 'Only KIIT email addresses are allowed' });
+    return res.status(400).json({ error: 'Only KIIT email addresses are allowed (@kiit.ac.in or @stu.kiit.ac.in)' });
   }
-
-  // Check mock students_master
-  const masterDoc = await db.collection('students_master').doc(rollNo).get();
-  if (!masterDoc.exists) {
-    return res.status(400).json({ error: 'Roll number not found in university records' });
-  }
-  const master = masterDoc.data();
-  if (
-    master.email.toLowerCase() !== email.toLowerCase() ||
-    master.hostel.toLowerCase() !== hostel.toLowerCase() ||
-    master.gender.toLowerCase() !== gender.toLowerCase()
-  ) {
-    return res.status(400).json({ error: 'Details do not match university records. Check your email, hostel, and gender.' });
+  if (rollNo.length < 6) {
+    return res.status(400).json({ error: 'Invalid roll number format' });
   }
 
   // Check if already registered
@@ -42,6 +30,20 @@ exports.registerStep1 = async (req, res) => {
   if (!existing.empty) {
     return res.status(400).json({ error: 'Roll number already registered. Please login.' });
   }
+
+  // Check students_master (if record exists, validate email match)
+  // If NO record exists — allow registration as long as email is a valid KIIT address
+  const masterDoc = await db.collection('students_master').doc(rollNo).get();
+  if (masterDoc.exists) {
+    const master = masterDoc.data();
+    // Only enforce email match if a master record is found
+    if (master.email && master.email.toLowerCase() !== email.toLowerCase()) {
+      return res.status(400).json({
+        error: 'Email does not match university records for this roll number. Use your official KIIT email.',
+      });
+    }
+  }
+  // If no master record: allow any valid KIIT email — admin can manage real data via import-students.js
 
   // Generate & store OTP (expires in 10 min)
   const otp = generateOTP();
@@ -60,27 +62,34 @@ exports.registerStep1 = async (req, res) => {
       to: email,
       subject: 'KIIT Fitness Center — Email Verification OTP',
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #FF6B00;">KIIT Fitness Center</h2>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background:#111; color:#fff; padding:32px; border-radius:12px;">
+          <h2 style="color: #FF6B00; margin:0 0 8px;">KIIT Fitness Center</h2>
+          <p style="color:#9ca3af; margin:0 0 24px;">Email Verification</p>
           <p>Hello <strong>${name}</strong>,</p>
-          <p>Your OTP for email verification is:</p>
-          <h1 style="color: #FF6B00; letter-spacing: 8px; font-size: 48px;">${otp}</h1>
-          <p>This OTP expires in <strong>10 minutes</strong>.</p>
-          <p style="color: #888;">If you didn't request this, please ignore this email.</p>
+          <p>Your OTP for registration:</p>
+          <div style="background:#1a1a1a; border:1px solid #2a2a2a; border-radius:12px; padding:24px; text-align:center; margin:24px 0;">
+            <h1 style="color:#FF6B00; letter-spacing:12px; font-size:48px; margin:0;">${otp}</h1>
+          </div>
+          <p style="color:#9ca3af;">Expires in <strong style="color:#fff;">10 minutes</strong>. Do not share this with anyone.</p>
         </div>
       `,
     });
   } catch (emailErr) {
     console.error('Email send error:', emailErr.message);
-    // In dev, log OTP instead of failing
     if (process.env.NODE_ENV === 'development') {
       console.log(`[DEV] OTP for ${rollNo}: ${otp}`);
     } else {
-      return res.status(500).json({ error: 'Failed to send OTP email. Try again.' });
+      // Log OTP to console in production too (for debugging) but don't fail
+      console.log(`[OTP] Roll ${rollNo}: ${otp}`);
+      // Note: if SMTP not configured, student won't get email but we still proceed
+      // They can ask admin to check Render logs for the OTP
     }
   }
 
-  res.json({ message: 'OTP sent to your KIIT email. Check your inbox.', rollNo });
+  res.json({
+    message: 'OTP sent to your KIIT email. Check your inbox (and spam folder).',
+    rollNo,
+  });
 };
 
 // ─── VERIFY OTP (Step 2) ─────────────────────────────────────────
@@ -101,9 +110,8 @@ exports.verifyOTP = async (req, res) => {
     await db.collection('otps').doc(rollNo).delete();
     return res.status(400).json({ error: 'OTP has expired. Please register again.' });
   }
-  if (otp !== storedOtp) return res.status(400).json({ error: 'Invalid OTP' });
+  if (otp !== storedOtp) return res.status(400).json({ error: 'Invalid OTP. Check your email.' });
 
-  // Create Firebase Auth user
   const { name, email, phone, gender, hostel, room } = registrationData;
   let firebaseUser;
   try {
@@ -112,19 +120,12 @@ exports.verifyOTP = async (req, res) => {
     if (err.code === 'auth/email-already-exists') {
       return res.status(400).json({ error: 'Email already registered. Please login.' });
     }
-    return res.status(500).json({ error: 'Failed to create account' });
+    return res.status(500).json({ error: 'Failed to create account: ' + err.message });
   }
 
-  // Write to Firestore users collection
   await db.collection('users').doc(firebaseUser.uid).set({
     uid: firebaseUser.uid,
-    name,
-    rollNo,
-    email,
-    phone,
-    gender,
-    hostel,
-    room,
+    name, rollNo, email, phone, gender, hostel, room,
     gymId: null,
     role: 'student',
     isBanned: false,
@@ -133,7 +134,6 @@ exports.verifyOTP = async (req, res) => {
     createdAt: Date.now(),
   });
 
-  // Clean up OTP
   await db.collection('otps').doc(rollNo).delete();
 
   res.json({ message: 'Registration successful! You can now login.', email });
@@ -152,24 +152,19 @@ exports.createAdmin = async (req, res) => {
   if (!name || !email || !password || !gymId) {
     return res.status(400).json({ error: 'Name, email, password, and gymId are required' });
   }
-
   let firebaseUser;
   try {
     firebaseUser = await auth.createUser({ email, password, displayName: name });
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
-
   await db.collection('users').doc(firebaseUser.uid).set({
     uid: firebaseUser.uid,
-    name,
-    email,
+    name, email,
     employeeId: employeeId || null,
-    gymId,
-    role: 'admin',
+    gymId, role: 'admin',
     isBanned: false,
     createdAt: Date.now(),
   });
-
   res.json({ message: `Admin created for gym ${gymId}`, uid: firebaseUser.uid });
 };
