@@ -96,7 +96,9 @@ exports.registerStep1 = async (req, res) => {
     console.log(`[OTP FALLBACK] Roll ${rollNo}: ${otp}`);
   }
 
-  res.json({ message: 'OTP sent to your KIIT email. Check your inbox and spam folder.', rollNo });
+  // Return OTP in response for internal university system
+  // (email delivery attempted but not required)
+  res.json({ message: 'OTP generated successfully.', rollNo, otp });
 };
 
 // ─── VERIFY OTP Step 2 ──────────────────────────────────────────
