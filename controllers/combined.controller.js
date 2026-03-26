@@ -127,7 +127,7 @@ exports.deleteNotification = async (req, res) => {
 
 // ── Complaints ────────────────────────────────────────────────────
 exports.createComplaint = async (req, res) => {
-  const { gymId, issue, category } = req.body;
+  const { gymId, issue, category, images } = req.body;
   if (!gymId || !issue) return res.status(400).json({ error: 'gymId and issue required' });
   const ref = await db.collection('complaints').add({
     userId: req.user.uid, gymId, issue,
